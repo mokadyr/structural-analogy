@@ -30,6 +30,7 @@ def draw_concat(Gs, reals, NoiseAmp, in_s, mode, inject_level, opt):
 
                 G_z = G_z[:,:,0:real_curr.shape[2],0:real_curr.shape[3]]
                 if count == inject_level:
+                    print("Inject")
                     z_in = noise_amp*z + real_curr.cuda()
                 else:
                     z_in = noise_amp*z+G_z
@@ -242,6 +243,7 @@ if __name__ == '__main__':
             eval_real_a = G_a(real_b, real_b)
             eval_real_b = G_b(real_a, real_a)
 
+        print("save " + str(scale_num))
         vutils.save_image(fake_a.clone(), osp.join(opt.out, "fake_a_" + str(scale_num) +".png"), normalize=True)
         vutils.save_image(mix_g_a.clone(), osp.join(opt.out, "a2b_inject_" + str(scale_num) + ".png"),
                           normalize=True)

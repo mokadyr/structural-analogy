@@ -64,9 +64,7 @@ def calc_gradient_penalty(netD, real_data, fake_data, LAMBDA, device):
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
     return gradient_penalty
 
-def load_trained_pyramid(opt, mode_='train'):
-    mode = opt.mode
-    opt.mode = 'train'
+def load_trained_pyramid(opt):
     if(os.path.exists(opt.load)):
         Gs = torch.load('%s/Gs.pth' % opt.load, map_location=opt.device)
         Zs = torch.load('%s/Zs.pth' % opt.load)
@@ -74,25 +72,19 @@ def load_trained_pyramid(opt, mode_='train'):
         NoiseAmp = torch.load('%s/NoiseAmp.pth' % opt.load)
     else:
         print('no appropriate trained model is exist, please train first')
-    opt.mode = mode
     return Gs,Zs,reals,NoiseAmp
 
-def load_trained_pyramid_mix(opt, mode_='train'):
-    mode = opt.mode
-    opt.mode = 'train'
+def load_trained_pyramid_mix(opt):
     if(os.path.exists(opt.load)):
         Gs_a = torch.load('%s/Gs_a.pth' % opt.load, map_location=opt.device)
-        Zs_a = torch.load('%s/Zs_a.pth' % opt.load)
         reals_a = torch.load('%s/reals_a.pth' % opt.load)
         NoiseAmp_a = torch.load('%s/NoiseAmp_a.pth' % opt.load, map_location=opt.device)
 
         Gs_b = torch.load('%s/Gs_b.pth' % opt.load, map_location=opt.device)
-        Zs_b = torch.load('%s/Zs_b.pth' % opt.load)
         reals_b = torch.load('%s/reals_b.pth' % opt.load)
         NoiseAmp_b = torch.load('%s/NoiseAmp_b.pth' % opt.load, map_location=opt.device)
 
     else:
         print('no appropriate trained model is exist, please train first')
         sys.exit()
-    opt.mode = mode
-    return Gs_a, Zs_a, reals_a, NoiseAmp_a, Gs_b, Zs_b, reals_b, NoiseAmp_b
+    return Gs_a, reals_a, NoiseAmp_a, Gs_b, reals_b, NoiseAmp_b

@@ -16,12 +16,20 @@ import torchvision.utils as vutils
 
 
 
-def draw_concat(Gs, reals, NoiseAmp, in_s, mode, inject_level, opt):
-    if len(Gs) > 0:
+def draw_concat(Gs_a,Gs_b, reals, NoiseAmp, in_s, mode, inject_level, opt, switch_level=9):
+    if len(Gs_a) > 0 and len(Gs_b) > 0:
         if mode == 'rand':
             count = 0
-            for G,real_curr,real_next,noise_amp in zip(Gs,reals,reals[1:],NoiseAmp):
+            for G_a,G_b,real_curr,real_next,noise_amp in zip(Gs_a,Gs_b,reals,reals[1:],NoiseAmp):
+                if count > switch_level:
+                    print("Other G")
+                    G = G_b
+                else:
+                    print("Normal G")
+                    G = G_a
+
                 print("cnt " + str(count))
+
                 if count == 0:
                     z = generate_noise2([1, 3, real_curr.shape[2], real_curr.shape[3]], device=opt.device)
                     G_z = in_s
@@ -30,6 +38,7 @@ def draw_concat(Gs, reals, NoiseAmp, in_s, mode, inject_level, opt):
 
                 G_z = G_z[:,:,0:real_curr.shape[2],0:real_curr.shape[3]]
                 if count == inject_level:
+                    print("Inject!")
                     z_in = noise_amp*z + real_curr.cuda()
                 else:
                     z_in = noise_amp*z+G_z
@@ -37,6 +46,13 @@ def draw_concat(Gs, reals, NoiseAmp, in_s, mode, inject_level, opt):
                     G_z = G(z_in.detach())
                 else:
                     G_z = G(z_in.detach(), G_z)
+
+                if count == switch_level:
+                    print("Switch! ")
+                    if count > opt.switch_scale:
+                        G_z = G_b(G_z)
+                    else:
+                        G_z = G_b(G_z, G_z)
                 G_z = imresize2(G_z.detach(),1/opt.scale_factor,opt)
                 G_z = G_z[:,:,0:real_next.shape[2],0:real_next.shape[3]]
                 count += 1
@@ -130,7 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', type=int, default=220, help='image size of the output')
     parser.add_argument('--out', required=True)
     parser.add_argument('--print_interval', type=int, default=1000)
-    parser.add_argument('--inject_levels', type=int, default=5)
+    parser.add_argument('--inject_level', type=int, default=6)
     parser.add_argument('--add_inject', type=bool, default=True)
     parser.add_argument('--load', required=True)
     opt = parser.parse_args()
@@ -196,72 +212,54 @@ if __name__ == '__main__':
     NoiseAmp_a = NoiseAmp_a[:len(NoiseAmp_a)-1]
     NoiseAmp_b = NoiseAmp_b[:len(NoiseAmp_b)-1]
 
-    scale_num = opt.stop_scale - opt.inject_levels + 1
+    # = opt.stop_scale - opt.inject_levels + 1
 
-    while scale_num < opt.stop_scale + 1:
-        print("scale_num " + str(scale_num))
-        opt.nfc = min(opt.nfc_init * pow(2, math.floor(opt.stop_scale / 4)), 128)
-        opt.min_nfc = min(opt.min_nfc_init * pow(2, math.floor(opt.stop_scale / 4)), 128)
+    for il in range(opt.inject_level, opt.stop_scale + 1):
+        for ss in range(il, opt.stop_scale + 1):
+            print("inject " + str(il) + " - switch " + str(ss))
+            opt.nfc = min(opt.nfc_init * pow(2, math.floor(opt.stop_scale / 4)), 128)
+            opt.min_nfc = min(opt.min_nfc_init * pow(2, math.floor(opt.stop_scale / 4)), 128)
 
-        pad_image = int(((opt.ker_size - 1) * opt.num_layer) / 2)
+            pad_image = int(((opt.ker_size - 1) * opt.num_layer) / 2)
 
-        opt.nzx = size_arr[len(Gs_a)]
-        opt.nzy = size_arr[len(Gs_a)]
+            opt.nzx = size_arr[len(Gs_a)]
+            opt.nzy = size_arr[len(Gs_a)]
 
-        real_a = data_a[len(Gs_a)].cuda()
-        real_b = data_b[len(Gs_b)].cuda()
+            real_a = data_a[len(Gs_a)].cuda()
+            real_b = data_b[len(Gs_b)].cuda()
 
-        noise_ = generate_noise2([1, opt.nc_z, opt.nzx, opt.nzy], device=opt.device)
+            noise_ = generate_noise2([1, opt.nc_z, opt.nzx, opt.nzy], device=opt.device)
 
-        prev_a = draw_concat(Gs_a, list(data_a), NoiseAmp_a, in_s, 'rand', scale_num, opt)
-        noise_a = opt.noise_amp_a * noise_ + prev_a
+            prev_a = draw_concat(Gs_a, Gs_b, list(data_a), NoiseAmp_a, in_s, 'rand', il, opt, switch_level=ss)
+            noise_a = opt.noise_amp_a * noise_ + prev_a
 
-        noise_ = generate_noise2([1, opt.nc_z, opt.nzx, opt.nzy], device=opt.device)
+            noise_ = generate_noise2([1, opt.nc_z, opt.nzx, opt.nzy], device=opt.device)
 
-        prev_b = draw_concat(Gs_b, list(data_b), NoiseAmp_b, in_s, 'rand', scale_num, opt)
-        noise_b = opt.noise_amp_b * noise_ + prev_b
+            prev_b = draw_concat(Gs_b, Gs_a, list(data_b), NoiseAmp_b, in_s, 'rand', il, opt, switch_level=ss)
+            noise_b = opt.noise_amp_b * noise_ + prev_b
 
-        if opt.stop_scale > opt.switch_scale:
-            fake_a = G_a(noise_a.detach())
-            fake_b = G_b(noise_b.detach())
-        else:
-            fake_a = G_a(noise_a.detach(), prev_a.detach())
-            fake_b = G_b(noise_b.detach(), prev_b.detach())
+            #if opt.stop_scale > opt.switch_scale:
+            #    fake_a = G_a(noise_a.detach())
+            #    fake_b = G_b(noise_b.detach())
+            #else:
+            #    fake_a = G_a(noise_a.detach(), prev_a.detach())
+            #    fake_b = G_b(noise_b.detach(), prev_b.detach())
 
-        if opt.stop_scale > opt.switch_scale:
-            mix_g_a = G_a(fake_b)
-            mix_g_b = G_b(fake_a)
-        else:
-            mix_g_a = G_a(fake_b, fake_b)
-            mix_g_b = G_b(fake_a, fake_a)
+            if opt.stop_scale > opt.switch_scale:
+                mix_g_a = G_a(noise_b.detach())
+                mix_g_b = G_b(noise_a.detach())
+            else:
+                mix_g_a = G_a(noise_b.detach(), prev_b.detach())
+                mix_g_b = G_b(noise_a.detach(), prev_a.detach())
 
-        if opt.stop_scale > opt.switch_scale:
-            eval_real_a = G_a(real_b)
-            eval_real_b = G_b(real_a)
-        else:
-            eval_real_a = G_a(real_b, real_b)
-            eval_real_b = G_b(real_a, real_a)
+            vutils.save_image(mix_g_a.clone(), osp.join(opt.out, "b2a_inject_" + str(il) + "_switch_" + str(ss) + ".png"), normalize=True)
+            vutils.save_image(mix_g_b.clone(), osp.join(opt.out, "a2b_inject_" + str(il) + "_switch_" + str(ss) + ".png"), normalize=True)
+            if ss == opt.stop_scale and il == opt.stop_scale:
+                vutils.save_image(real_a.clone(), osp.join(opt.out, "real_a_" + ".png"), normalize=True)
+                vutils.save_image(real_b.clone(), osp.join(opt.out, "real_b_" + ".png"), normalize=True)
 
-        vutils.save_image(fake_a.clone(), osp.join(opt.out, "fake_a_" + str(scale_num) +".png"), normalize=True)
-        vutils.save_image(mix_g_a.clone(), osp.join(opt.out, "a2b_inject_" + str(scale_num) + ".png"),
-                          normalize=True)
-        vutils.save_image(fake_b.clone(), osp.join(opt.out, "fake_b_" + str(scale_num) + ".png"),
-                          normalize=True)
-        vutils.save_image(mix_g_b.clone(), osp.join(opt.out, "b2a_inject_" + str(scale_num) + ".png"),
-                          normalize=True)
-        if scale_num == opt.stop_scale:
-            vutils.save_image(eval_real_a.clone(), osp.join(opt.out, "b2a_from_real_" + ".png"),
-                              normalize=True)
-            vutils.save_image(eval_real_b.clone(), osp.join(opt.out, "a2b_from_real_" + ".png"),
-                              normalize=True)
-            vutils.save_image(real_a.clone(), osp.join(opt.out, "real_a_" + ".png"),
-                              normalize=True)
-            vutils.save_image(real_b.clone(), osp.join(opt.out, "real_b_" + ".png"),
-                              normalize=True)
-
-        print("imgs saved, scale_num=%0d" % (scale_num))
-        sys.stdout.flush()
-        scale_num += 1
+            print("imgs saved, switch=%0d" % ss)
+            sys.stdout.flush()
 
 
 
